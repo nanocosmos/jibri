@@ -31,8 +31,10 @@ import org.jitsi.jibri.status.ComponentState
 import org.jitsi.jibri.util.extensions.error
 import org.jitsi.jibri.util.whenever
 
-private const val YOUTUBE_URL = "rtmp://a.rtmp.youtube.com/live2"
-private const val STREAMING_MAX_BITRATE = 2976
+//private const val YOUTUBE_URL = "rtmp://a.rtmp.youtube.com/live2"
+private const val YOUTUBE_URL = "rtmp://bintu-stream.nanocosmos.de/rec"
+//private const val STREAMING_MAX_BITRATE = 2976
+private const val STREAMING_MAX_BITRATE = 2000
 
 /**
  * Parameters needed for starting a [StreamingJibriService]
@@ -76,6 +78,7 @@ class StreamingJibriService(
     init {
         sink = StreamSink(
             url = "$YOUTUBE_URL/${streamingParams.youTubeStreamKey}",
+            //url = "rtmp://bintu-stream.nanocosmos.de:1935/rec/yPleE-ALnaS",
             streamingMaxBitrate = STREAMING_MAX_BITRATE,
             streamingBufSize = 2 * STREAMING_MAX_BITRATE
         )

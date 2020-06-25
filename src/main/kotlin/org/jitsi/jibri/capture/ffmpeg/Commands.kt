@@ -33,6 +33,7 @@ fun getFfmpegCommandLinux(ffmpegExecutorParams: FfmpegExecutorParams, sink: Sink
         "-acodec", "aac", "-strict", "-2", "-ar", "44100", "-b:a", "128k",
         "-af", "aresample=async=1",
         "-c:v", "libx264", "-preset", ffmpegExecutorParams.videoEncodePreset,
+        "-profile:v", "baseline",
         *sink.options, "-pix_fmt", "yuv420p", "-r", ffmpegExecutorParams.framerate.toString(),
         "-crf", ffmpegExecutorParams.h264ConstantRateFactor.toString(),
         "-g", ffmpegExecutorParams.gopSize.toString(), "-tune", "zerolatency",
