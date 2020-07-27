@@ -1,3 +1,5 @@
+// ktlint-disable filename
+
 /*
  * Copyright @ 2018 - present 8x8, Inc.
  *
@@ -14,11 +16,10 @@
  * limitations under the License.
  */
 
-package org.jitsi.jibri.selenium
+package org.jitsi.jibri.webhooks.v1
 
-import org.jitsi.jibri.error.JibriError
-import org.jitsi.jibri.status.ErrorScope
+import org.jitsi.jibri.status.JibriStatus
 
-object FailedToJoinCall : JibriError(ErrorScope.SESSION, "Failed to join the call")
-object ChromeHung : JibriError(ErrorScope.SESSION, "Chrome hung")
-object NoMediaReceived : JibriError(ErrorScope.SESSION, "No media received")
+sealed class JibriEvent(val jibriId: String) {
+    class HealthEvent(jibriId: String, val status: JibriStatus) : JibriEvent(jibriId)
+}

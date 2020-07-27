@@ -18,20 +18,15 @@
 package org.jitsi.jibri
 
 import com.fasterxml.jackson.core.JsonParser
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.exc.InvalidFormatException
 import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException
 import com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
-import com.fasterxml.jackson.module.kotlin.registerKotlinModule
+import io.ktor.server.engine.embeddedServer
+import io.ktor.server.jetty.Jetty
+import kotlinx.coroutines.CancellationException
 import net.sourceforge.argparse4j.ArgumentParsers
-import org.eclipse.jetty.server.Server
-import org.eclipse.jetty.servlet.ServletContextHandler
-import org.eclipse.jetty.servlet.ServletHolder
-import org.glassfish.jersey.jackson.JacksonFeature
-import org.glassfish.jersey.server.ResourceConfig
-import org.glassfish.jersey.servlet.ServletContainer
 import org.jitsi.jibri.api.http.HttpApi
 import org.jitsi.jibri.api.http.internal.InternalHttpApi
 import org.jitsi.jibri.api.xmpp.XmppApi
@@ -40,10 +35,13 @@ import org.jitsi.jibri.statsd.JibriStatsDClient
 import org.jitsi.jibri.status.ComponentBusyStatus
 import org.jitsi.jibri.status.ComponentHealthStatus
 import org.jitsi.jibri.status.JibriStatusManager
+import org.jitsi.jibri.util.TaskPools
 import org.jitsi.jibri.util.extensions.error
+import org.jitsi.jibri.util.extensions.scheduleAtFixedRate
+import org.jitsi.jibri.webhooks.v1.WebhookClient
 import java.io.File
+import java.util.concurrent.TimeUnit
 import java.util.logging.Logger
-import javax.ws.rs.ext.ContextResolver
 import kotlin.system.exitProcess
 
 val logger: Logger = Logger.getLogger("org.jitsi.jibri.Main")
@@ -116,13 +114,38 @@ fun main(args: Array<String>) {
         }
     }
 
-    // InternalHttpApi
+    val webhookClient = WebhookClient(jibriConfig.jibriId)
+
+    jibriStatusManager.addStatusHandler {
+        webhookClient.updateStatus(it)
+    }
+    jibriConfig.webhookSubscribers.forEach { webhookClient.addSubscriber(it) }
+    val statusUpdaterTask = TaskPools.recurringTasksPool.scheduleAtFixedRate(
+        1,
+        TimeUnit.MINUTES
+    ) {
+        webhookClient.updateStatus(jibriStatusManager.overallStatus)
+    }
+
+    val cleanupAndExit = { exitCode: Int ->
+        statusUpdaterTask.cancel(true)
+        try {
+            statusUpdaterTask.get(5, TimeUnit.SECONDS)
+        } catch (t: Throwable) {
+            when (t) {
+                is CancellationException -> {}
+                else -> logger.error("Error cleaning up status updater task: $t")
+            }
+        }
+        exitProcess(exitCode)
+    }
+
     val configChangedHandler = {
         logger.info("The config file has changed, waiting for Jibri to be idle before exiting")
         jibriManager.executeWhenIdle {
             logger.info("Jibri is idle and there are config file changes, exiting")
             // Exit so we can be restarted and load the new config
-            exitProcess(0)
+            cleanupAndExit(0)
         }
     }
     val gracefulShutdownHandler = {
@@ -130,21 +153,21 @@ fun main(args: Array<String>) {
         jibriManager.executeWhenIdle {
             logger.info("Jibri is idle and has been told to gracefully shutdown, exiting")
             // Exit with code 255 to indicate we do not want process restart
-            exitProcess(255)
+            cleanupAndExit(255)
         }
     }
     val shutdownHandler = {
         logger.info("Jibri has been told to shutdown, stopping any active service")
         jibriManager.stopService()
         logger.info("Service stopped")
-        exitProcess(255)
+        cleanupAndExit(255)
     }
-    val internalHttpApi = InternalHttpApi(
-        configChangedHandler = configChangedHandler,
-        gracefulShutdownHandler = gracefulShutdownHandler,
-        shutdownHandler = shutdownHandler
-    )
-    launchHttpServer(internalHttpPort, internalHttpApi)
+
+    with(InternalHttpApi(configChangedHandler, gracefulShutdownHandler, shutdownHandler)) {
+        embeddedServer(Jetty, port = internalHttpPort) {
+            internalApiModule()
+        }.start()
+    }
 
     // XmppApi
     val xmppApi = XmppApi(
@@ -155,20 +178,9 @@ fun main(args: Array<String>) {
     xmppApi.start()
 
     // HttpApi
-    launchHttpServer(httpApiPort, HttpApi(jibriManager, jibriStatusManager))
-}
-
-fun launchHttpServer(port: Int, component: Any) {
-    val jerseyConfig = ResourceConfig(object : ResourceConfig() {
-        init {
-            register(ContextResolver<ObjectMapper> { ObjectMapper().registerKotlinModule() })
-            register(JacksonFeature::class.java)
-            registerInstances(component)
+    with(HttpApi(jibriManager, jibriStatusManager)) {
+        embeddedServer(Jetty, port = httpApiPort) {
+            apiModule()
         }
-    })
-    val servlet = ServletHolder(ServletContainer(jerseyConfig))
-    val server = Server(port)
-    val context = ServletContextHandler(server, "/*")
-    context.addServlet(servlet, "/*")
-    server.start()
+    }.start()
 }

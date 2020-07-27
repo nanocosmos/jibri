@@ -185,7 +185,8 @@ class FileRecordingJibriService(
                 publishStatus(ComponentState.Error(CouldntWriteMeetingMetadata))
             }
         } else {
-            logger.error("Unable to write metadata file to recording directory ${fileRecordingParams.recordingDirectory}")
+            logger.error("Unable to write metadata file to recording directory " +
+                "${fileRecordingParams.recordingDirectory}")
         }
         jibriSelenium.leaveCallAndQuitBrowser()
         logger.info("Finalizing the recording")
@@ -205,7 +206,7 @@ class FileRecordingJibriService(
             )
             with(processFactory.createProcess(finalizeCommand)) {
                 start()
-                val streamDone = LoggingUtils.logOutput(this, logger)
+                val streamDone = LoggingUtils.logOutputOfProcess(this, logger)
                 waitFor()
                 // Make sure we get all the logs
                 try {
